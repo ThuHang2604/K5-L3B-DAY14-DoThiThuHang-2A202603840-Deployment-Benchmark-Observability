@@ -444,9 +444,30 @@ GET /health → 200 luôn (liveness) · GET /ready → 503 khi Redis down hoặc
 
 ### Output `python check_production_ready.py` (bản đầy đủ, có Docker)
 
+Chạy trong `06-lab-complete/` trên WSL2 Ubuntu (Python 3.12.16, Docker 29.9.3), 2026-11-26, exit code 0. Không phải sửa code sau lần chạy này.
+
 ```text
-⟨ĐIỀN — dán phần "📋 Checklist Deliverable" + dòng "Result: ..." sau khi chạy trong 06-lab-complete/ trên WSL2/Linux có Docker⟩
+  📋 Checklist Deliverable
+     ✅ Dockerfile (multi-stage, < 500 MB)
+     ✅ docker-compose.yml (agent + redis)
+     ✅ .dockerignore
+     ✅ Health check endpoint (GET /health)
+     ✅ Readiness endpoint (GET /ready)
+     ✅ API Key authentication
+     ✅ Rate limiting
+     ✅ Cost guard
+     ✅ Config từ environment variables
+     ✅ Structured logging
+     ✅ Graceful shutdown
+     ✅ Public URL ready (Railway / Render config)
+----------------------------------------------------------------
+  Result: 12/12 tiêu chí đạt · 43/43 checks passed
+  🎉 PASS 12/12 — PRODUCTION READY! Deploy nào!
 ```
+
+Một số dòng chi tiết trong cùng lần chạy: `Docker: build image thành công — 25s`, `Docker: image < 500 MB — 273 MB`, `` Docker: `docker stop` tắt êm (exit code 0, < 10s) — exit code 0, 0.7s ``.
+
+Các chế độ nhanh: `--static-only` → `Result: 3/12 tiêu chí đạt · 28/28 checks passed` (chạy cả trên Windows và WSL); `--skip-docker` (WSL) → `Result: 10/12 tiêu chí đạt · 39/39 checks passed` (2 tiêu chí cần Docker để ở ⚠️).
 
 ---
 
