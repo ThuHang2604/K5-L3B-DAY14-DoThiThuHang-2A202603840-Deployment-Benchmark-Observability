@@ -191,9 +191,26 @@ Vì sao khác: Railway coi config-as-code là phần bổ sung cho Dashboard (h�
 - **Rotate key:** key đọc từ env `AGENT_API_KEY` → đổi biến trên platform rồi restart/redeploy. Để không downtime nên cho app chấp nhận đồng thời key cũ và key mới trong một khoảng thời gian (vd `AGENT_API_KEYS=new,old`), cập nhật client, rồi bỏ key cũ.
 - Lưu ý: bản develop có default `"demo-key-change-in-production"` và in key ra console khi start — không nên làm ở production.
 
+Chạy `AGENT_API_KEY=secret-key-123 python app.py` trong `04-api-gateway/develop` (2026-11-26). Bản develop đọc `question` từ JSON body nên gọi bằng `-d '{"question": ...}'` (query string `?question=` làm `request.json()` lỗi → 500).
+
 ```text
-⟨ĐIỀN — curl -i không key → HTTP/1.1 401 ...⟩
-⟨ĐIỀN — curl -i có key secret-key-123 → HTTP/1.1 200 ...⟩
+$ curl -i -X POST localhost:8000/ask -H "Content-Type: application/json" -d '{"question": "What is an API gateway?"}'
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+
+{"detail":"Missing API key. Include header: X-API-Key: <your-key>"}
+
+$ curl -i -X POST localhost:8000/ask -H "Content-Type: application/json" -H "X-API-Key: wrong-key" -d '{"question": "What is an API gateway?"}'
+HTTP/1.1 403 Forbidden
+content-type: application/json
+
+{"detail":"Invalid API key."}
+
+$ curl -i -X POST localhost:8000/ask -H "Content-Type: application/json" -H "X-API-Key: secret-key-123" -d '{"question": "What is an API gateway?"}'
+HTTP/1.1 200 OK
+content-type: application/json
+
+{"question":"What is an API gateway?","answer":"Tôi là AI agent được deploy lên cloud. Câu hỏi của bạn đã được nhận."}
 ```
 
 ### Exercise 4.2 — JWT (`04-api-gateway/production/auth.py`)
@@ -201,8 +218,18 @@ Vì sao khác: Railway coi config-as-code là phần bổ sung cho Dashboard (h�
 Flow: `POST /auth/token` với `student`/`demo123` → `authenticate_user` kiểm tra → `create_token` ký payload `{sub, role, iat, exp(+60 phút)}` bằng HS256 + `JWT_SECRET` → client gửi `Authorization: Bearer <token>` → `verify_token` kiểm chữ ký và hạn → trả `{username, role}` cho endpoint. Server không cần tra DB mỗi request (stateless). Token hết hạn → 401, chữ ký sai → 403.
 
 ```text
-⟨ĐIỀN — output lấy token (che token)⟩
-⟨ĐIỀN — curl -i /ask với Bearer token → 200⟩
+$ curl -s -X POST localhost:8000/auth/token -H "Content-Type: application/json" -d '{"username":"student","password":"demo123"}'
+{"access_token":"eyJ...***","token_type":"bearer","expires_in_minutes":60,"hint":"Include in header: Authorization: Bearer eyJ...***"}
+
+$ curl -i -X POST localhost:8000/ask -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"question": "what is docker?"}'
+HTTP/1.1 200 OK
+content-type: application/json
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-xss-protection: 1; mode=block
+referrer-policy: strict-origin-when-cross-origin
+
+{"question":"what is docker?","answer":"Container là cách đóng gói app để chạy ở mọi nơi. Build once, run anywhere!","usage":{"requests_remaining":9,"budget_remaining_usd":1.9e-05}}
 ```
 
 ### Exercise 4.3 — Rate limiting (`rate_limiter.py`)
@@ -212,9 +239,31 @@ Flow: `POST /auth/token` với `student`/`demo123` → `authenticate_user` kiể
 - **Admin "bypass":** `/ask` chọn limiter theo `role` trong JWT — role `admin` dùng limiter 100 req/phút.
 - Vượt giới hạn → **429** kèm `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining: 0`. Hạn chế: state nằm trong RAM của process → nhiều instance/worker mỗi cái đếm riêng và mất khi restart (Part 6 chuyển sang Redis).
 
+Vòng lặp 20 request bằng cùng token, chạy ngay sau request 200 ở trên (request đó đã dùng 1/10 lượt):
+
 ```text
-⟨ĐIỀN — vòng lặp 20 request: 10 cái 200 rồi HTTP/1.1 429 + Retry-After⟩
+$ for i in $(seq 1 20); do curl -s -o /dev/null -D /tmp/h -w "%{http_code} " -X POST localhost:8000/ask -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d "{\"question\": \"test $i\"}"; grep -iE "^(retry-after|x-ratelimit-remaining):" /tmp/h; done
+req  1: 200
+req  2: 200
+...
+req  9: 200
+req 10: 429 x-ratelimit-remaining: 0 retry-after: 59
+req 11: 429 x-ratelimit-remaining: 0 retry-after: 59
+...
+req 20: 429 x-ratelimit-remaining: 0 retry-after: 59
+
+$ curl -i -X POST localhost:8000/ask ... -d '{"question": "one more"}'
+HTTP/1.1 429 Too Many Requests
+x-ratelimit-limit: 10
+x-ratelimit-remaining: 0
+x-ratelimit-reset: 1795710052
+retry-after: 59
+content-type: application/json
+
+{"detail":{"error":"Rate limit exceeded","limit":10,"window_seconds":60,"retry_after_seconds":59}}
 ```
+
+Tổng cộng đúng 10 request 200 trong 60 giây (1 request ở Exercise 4.2 + 9 request trong vòng lặp), request thứ 11 trở đi bị 429.
 
 ### Exercise 4.4 — Cost guard (cách mình làm ở Part 6, `06-lab-complete/app/cost_guard.py`)
 
