@@ -290,7 +290,36 @@ Tổng cộng đúng 10 request 200 trong 60 giây (1 request ở Exercise 4.2 +
 - `handle_sigterm` đăng ký lúc import chỉ để log; uvicorn cài handler riêng đè lên khi chạy. Nếu tự viết handler mà **không gọi lại** handler của uvicorn thì process không bao giờ tắt (đúng như cảnh báo trong TODO Part 6).
 - Part 6: hook SIGTERM bọc handler của uvicorn (đánh dấu draining để `/ready` trả 503, rồi gọi lại handler cũ), Docker `CMD` dùng `exec uvicorn` để uvicorn là PID 1 nhận được SIGTERM từ `docker stop`.
 
-Test: ⟨ĐIỀN — gửi request rồi `kill -TERM $PID` ngay: request vẫn trả 200, log có dòng shutdown⟩
+Test (WSL Ubuntu, `05-scaling-reliability/develop`, 2026-11-26). `/ask` gọi mock LLM mất khoảng 3 giây; gửi SIGTERM 0,5 giây sau khi gửi request:
+
+```text
+$ python app.py &  PID=$!
+$ curl -s localhost:8000/health
+{"status":"ok","uptime_seconds":0.8,"version":"1.0.0","environment":"development","timestamp":"2026-11-26T16:20:30.308167+00:00","checks":{"memory":{"status":"ok","used_percent":14.2}}}  [HTTP 200]
+$ curl -s localhost:8000/ready
+{"ready":true,"in_flight_requests":1}  [HTTP 200]
+
+23:20:30.319 request sent      (curl -X POST "localhost:8000/ask?question=Hello" &)
+23:20:30.825 kill -TERM 1316
+23:20:33.373 curl done
+{"answer":"Tôi là AI agent được deploy lên cloud. Câu hỏi của bạn đã được nhận."}  [HTTP 200, 3.041946s]
+server exited
+```
+
+Log server:
+
+```text
+INFO:     Shutting down
+INFO:     127.0.0.1:39324 - "POST /ask?question=Hello HTTP/1.1" 200 OK
+INFO:     Waiting for application shutdown.
+2026-11-26 23:20:33,467 INFO 🔄 Graceful shutdown initiated...
+2026-11-26 23:20:33,467 INFO ✅ Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1316]
+2026-11-26 23:20:33,467 INFO Received signal 15 — uvicorn will handle graceful shutdown
+```
+
+Nhận xét: uvicorn in `Shutting down` ngay khi nhận SIGTERM nhưng vẫn chờ request in-flight trả **200** rồi mới chạy phần shutdown của `lifespan`. Dòng `Received signal 15` của `handle_sigterm` xuất hiện **cuối cùng**, sau `Finished server process`, đúng như nhận xét ở Part 1: uvicorn cài handler riêng đè lên, khi tắt xong mới khôi phục handler cũ và phát lại tín hiệu.
 
 ### Exercise 5.3 — Stateless
 
@@ -305,7 +334,40 @@ docker compose -p k5-day14-scaling up -d --build --scale agent=3
 
 Nginx `upstream agent_cluster { server agent:8000; }` — DNS của Compose trả về 3 IP, Nginx round-robin; `proxy_next_upstream error timeout http_503` + `proxy_next_upstream_tries 3` chuyển request sang instance khác khi 1 instance lỗi. Header `X-Served-By` cho thấy instance phục vụ.
 
-Kết quả: ⟨ĐIỀN — vd các giá trị `served_by` khác nhau qua 10 request / `docker compose -p k5-day14-scaling logs agent`⟩
+Kết quả (2026-11-26):
+
+```text
+$ docker compose -p k5-day14-scaling ps
+k5-day14-scaling-agent-1 Up 14 seconds (healthy)
+k5-day14-scaling-agent-2 Up 14 seconds (healthy)
+k5-day14-scaling-agent-3 Up 14 seconds (healthy)
+k5-day14-scaling-nginx-1 Up 13 seconds
+k5-day14-scaling-redis-1 Up 24 seconds (healthy)
+
+$ for i in $(seq 1 6); do curl -s -D - -o /dev/null http://localhost:8080/health | grep -i x-served-by; done
+X-Served-By: 172.19.0.5:8000
+X-Served-By: 172.19.0.3:8000
+X-Served-By: 172.19.0.4:8000
+X-Served-By: 172.19.0.5:8000
+X-Served-By: 172.19.0.3:8000
+X-Served-By: 172.19.0.4:8000
+
+$ docker compose -p k5-day14-scaling logs agent   (bỏ dòng GET /health)
+agent-3  | INFO:app:Starting instance instance-3bcb66
+agent-3  | INFO:app:Storage: Redis ✅
+agent-1  | INFO:app:Starting instance instance-3a6f1b
+agent-1  | INFO:app:Storage: Redis ✅
+agent-2  | INFO:app:Starting instance instance-4c96bd
+agent-2  | INFO:app:Storage: Redis ✅
+agent-1  | INFO:     172.19.0.6:58386 - "POST /chat HTTP/1.1" 200 OK
+agent-1  | INFO:     172.19.0.6:58386 - "POST /chat HTTP/1.1" 200 OK
+agent-3  | INFO:     172.19.0.6:38334 - "POST /chat HTTP/1.1" 200 OK
+agent-3  | INFO:     172.19.0.6:38334 - "POST /chat HTTP/1.1" 200 OK
+agent-2  | INFO:     172.19.0.6:46460 - "POST /chat HTTP/1.1" 200 OK
+agent-2  | INFO:     172.19.0.6:46460 - "GET /chat/6b9df6a1-1872-4bfc-b778-83ed2f5a5be9/history HTTP/1.1" 200 OK
+```
+
+Nginx xoay vòng đều qua 3 IP (`.5 → .3 → .4 → .5 …`), và cả 3 container đều nhận `POST /chat`.
 
 ### Exercise 5.5 — Test stateless
 
@@ -314,7 +376,38 @@ python test_stateless.py
 docker compose -p k5-day14-scaling down
 ```
 
-Output: ⟨ĐIỀN⟩
+Output:
+
+```text
+Session ID: 6b9df6a1-1872-4bfc-b778-83ed2f5a5be9
+
+Request 1: [instance-3bcb66]
+  Q: What is Docker?
+Request 2: [instance-3a6f1b]
+  Q: Why do we need containers?
+Request 3: [instance-4c96bd]
+  Q: What is Kubernetes?
+Request 4: [instance-3bcb66]
+  Q: How does load balancing work?
+Request 5: [instance-3a6f1b]
+  Q: What is Redis used for?
+
+------------------------------------------------------------
+Total requests: 5
+Instances used: {'instance-3a6f1b', 'instance-3bcb66', 'instance-4c96bd'}
+✅ All requests served despite different instances!
+
+--- Conversation History ---
+Total messages: 10
+  [user]: What is Docker?...
+  [assistant]: Container là cách đóng gói app để chạy ở mọi nơi. Build once...
+  [user]: Why do we need containers?...
+  ...
+  [user]: What is Redis used for?...
+  [assistant]: Tôi là AI agent được deploy lên cloud. Câu hỏi của bạn đã đư...
+
+✅ Session history preserved across all instances via Redis!
+```
 
 Giải thích: 5 câu trong cùng `session_id` được phục vụ bởi các instance khác nhau (`served_by` đổi) nhưng history cuối cùng vẫn đủ các lượt hỏi–đáp, vì history nằm ở Redis chứ không ở RAM của instance nào.
 
