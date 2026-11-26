@@ -158,8 +158,10 @@ $ curl -X POST http://localhost/ask -H "Content-Type: application/json" -d '{"qu
 
 ### Exercise 3.1 — Deploy (agent Part 6)
 
-- Nền tảng chính: ⟨ĐIỀN: Railway hoặc Render⟩
-- URL: ⟨ĐIỀN⟩ — chi tiết, biến môi trường và ảnh: [DEPLOYMENT.md](DEPLOYMENT.md)
+- Nền tảng chính: **Railway** (project `day14-agent`: service `agent` build từ `06-lab-complete/Dockerfile` + database Redis; biến `AGENT_API_KEY`, `ENVIRONMENT=production`, `REDIS_URL=${{Redis.REDIS_URL}}` đặt bằng `railway variable set`)
+- URL: https://agent-production-2a341514.up.railway.app — chi tiết, biến môi trường và ảnh: [DEPLOYMENT.md](DEPLOYMENT.md)
+- 4 lệnh tự kiểm CP6 (2026-11-26T16:36:42Z): `/health` **200**, `/ready` **200**, `/ask` không key **401**, `/ask` có key **200**. Vòng lặp 12 request có key: 10 × 200 rồi 429 (`retry-after: 54`).
+- Ảnh: [dashboard](screenshots/dashboard.png) · [running](screenshots/running.png) · [test](screenshots/test.png)
 
 ### Exercise 3.2 — So sánh `railway.toml` và `render.yaml` (trong `06-lab-complete/`)
 
