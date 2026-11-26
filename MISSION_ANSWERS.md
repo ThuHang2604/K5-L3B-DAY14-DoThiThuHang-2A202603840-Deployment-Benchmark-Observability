@@ -1,7 +1,7 @@
 # Day 14 Lab — Mission Answers
 
 > Repo: `K5-L3B-DAY14-DoThiThuHang-2A202603840-Deployment-Benchmark-Observability`
-> Các chỗ ghi **⟨ĐIỀN⟩** là số đo / output phải dán từ lệnh chạy thật trên máy (không ước lượng).
+> Mọi số đo / output trong file này dán từ lệnh chạy thật trên máy (Windows 11 + WSL2 Ubuntu + Docker Desktop), ngày 2026-11-26.
 
 ---
 
@@ -477,7 +477,15 @@ Các chế độ nhanh: `--static-only` → `Result: 3/12 tiêu chí đạt · 2
 
 | Lần | Công cụ | Hỏi gì | Nhận được gì | Mình tự sửa / tự kiểm tra thế nào |
 |---|---|---|---|---|
-| 1 | Claude | Đọc đề Day 14 + script chấm, hoàn thành các TODO Part 6 | Code `app/*.py`, Dockerfile multi-stage, compose, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml` | ⟨ĐIỀN: chạy `check_production_ready.py` bản đầy đủ, đọc lại từng file, giải thích được sliding window Redis và vì sao hook SIGTERM phải gọi lại handler của uvicorn⟩ |
-| 2 | Claude | Sửa `KNOWLEDGE_BASE` cho 2 câu v2 sai (`security-02`, `scaling-03`) | Thêm 2 entry JWT và Kubernetes HPA vào `develop/` và `production/utils/mock_llm.py` | ⟨ĐIỀN: eval_v2_fixed đạt 23/23, 0 regression⟩ |
-| 3 | Claude | Script chạy toàn bộ CP7 và in bảng cho báo cáo từ file JSON/CSV | `scripts/run_part7_local.py`, `scripts/report_tables.py`, workflow `.github/workflows/eval-quality-gate.yml` | ⟨ĐIỀN: đã chạy, số trong BENCHMARK_REPORT.md lấy từ output của script⟩ |
-| 4 | Claude | Gợi ý câu trả lời Part 1–5 dựa trên code mẫu | Nội dung lý thuyết của file này | Mọi output/số đo (⟨ĐIỀN⟩) do mình tự chạy và dán vào |
+| 1 | Claude (phiên trước) | Đọc đề Day 14 + script chấm, hoàn thành các TODO Part 6 | Code `app/*.py`, Dockerfile multi-stage, compose, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml` | Claude Code chạy `check_production_ready.py` bản đầy đủ trong WSL2 → **PASS 12/12 · 43/43** ngay lần đầu, không phải sửa code; `--static-only` 28/28 (Windows + WSL), `--skip-docker` 39/39. Code chạy trên Railway giống hệt commit trên `main` |
+| 2 | Claude (phiên trước) | Script chạy toàn bộ CP7 và in bảng cho báo cáo từ file JSON/CSV | `scripts/run_part7_local.py`, `scripts/report_tables.py`, workflow `.github/workflows/eval-quality-gate.yml` | Đã chạy cả hai script; mọi bảng trong `BENCHMARK_REPORT.md` dán từ output `report_tables.py`. Workflow chạy thật trên GitHub Actions: run trên `063b8a8` và `70f3e48` đều `success` |
+| 3 | Claude (phiên trước) | Gợi ý câu trả lời Part 1–5 dựa trên code mẫu | Nội dung lý thuyết của file này | Mọi output/số đo trong file do Claude Code chạy lệnh thật rồi dán vào (lần 4) |
+| 4 | Claude Code (Opus 5.5), 2026-11-26/27 | Chạy toàn bộ phần thực hành Part 2–7, điền số thật, commit theo từng bước | Xem chi tiết bên dưới | Mình đọc lại output, ảnh và từng commit; tự đăng nhập Railway và tự chụp 7 ảnh |
+
+**Chi tiết lần 4 (Claude Code):**
+
+- **Môi trường:** Device Guard của máy chặn `.venv\Scripts\python.exe` và cả `_socket.pyd` của Python 3.12 bản uv trên Windows, nên mọi lệnh Python chạy trong WSL2 Ubuntu (`~/.venvs/day14`, Python 3.12.16). Riêng `check_production_ready.py --static-only` chạy thêm bằng Python 3.15 trên Windows (chỉ cần stdlib). `railway.exe` bản Windows cũng bị chặn, nên cài Railway CLI 5.75.0 bản Linux trong WSL.
+- **Lệnh đã chạy:** `docker build`/`run`/`images` (Part 2); `docker compose -p k5-day14-docker|k5-day14-scaling|k5-day14-observability up/down`; `curl -i` cho 401/403/200/429 (Part 4); test SIGTERM bằng `kill -TERM` trong WSL; `test_stateless.py`; `check_production_ready.py` (3 chế độ + `--public-url`); `railway init/add/variable set/up/domain/logs`; 4 lệnh tự kiểm CP6 + vòng lặp rate limit trên URL Railway; `run_part7_local.py`, `report_tables.py`; Locust headless scale 1/3 và tải nền 30 user; truy vấn Prometheus `/api/v1/query`, `/api/v1/alerts`, Jaeger `/api/v3/traces`; thí nghiệm A+B, C, D, E.
+- **File đã sửa:** `MISSION_ANSWERS.md`, `DEPLOYMENT.md`, `BENCHMARK_REPORT.md`; **viết mới** 2 entry KB (JWT, HPA) trong `develop/` và `production/utils/mock_llm.py` (khác với dự kiến ban đầu, bản sửa KB chưa có trong working tree, đã `git diff 83e677f` để kiểm tra); `production/Dockerfile` của Part 7 (`ENV PYTHONUSERBASE`, sửa crash-loop `No module named 'uvicorn'`); `.gitignore` (thêm `*.log`). Không sửa `check_production_ready.py`, `golden_dataset.jsonl` hay code Part 1–5.
+- **Đã kiểm tra:** eval v2 KB gốc 21/23 (sai đúng `security-02`, `scaling-03`) → `eval_v2_fixed` **23/23, 0 regression**, exit 0; gate v1 so với `eval_v2_fixed` exit **1**. Số instance trong lúc chạy Locust được xác nhận bằng `count(up{job="agent"})` (phát hiện `docker compose run` làm lần đo "1 instance" đầu tiên chạy 2 instance → đo lại bằng `--no-deps`). Log JSON khớp `trace_id` của trace chậm/lỗi. Key Railway lưu ngoài repo (`%USERPROFILE%\day14_agent_key.txt`), đã quét repo + toàn bộ lịch sử commit không có key; `git log --all -- .env "*.env"` rỗng.
+- **Sự cố khác:** `railway up` trực tiếp trong `06-lab-complete/` lỗi `exclude-patterns ... non-printable ASCII`, nên đã deploy từ bản copy sạch các file đã commit (ghi trong `DEPLOYMENT.md`). Hai commit `update`/`update 1` không do Claude Code tạo, đã lỡ đưa 2 file `*.log` (không chứa secret) và CSV Locust chưa hợp lệ lên; đã gỡ log ở commit `chore: untrack agent logs and ignore *.log` và thay CSV bằng lần đo đúng.
