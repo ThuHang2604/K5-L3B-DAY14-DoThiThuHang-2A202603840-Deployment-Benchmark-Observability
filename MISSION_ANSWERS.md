@@ -77,10 +77,16 @@ Ghi chú khi đọc code: `signal.signal(SIGTERM, handle_sigterm)` ở bản pro
 ```bash
 docker build -f 02-docker/develop/Dockerfile -t my-agent:develop .
 docker run --rm -p 8000:8000 my-agent:develop
-curl -X POST "http://localhost:8000/ask?question=What%20is%20Docker"
+curl -X POST "http://localhost:8000/ask?question=What+is+Docker"
 ```
 
-Output: ⟨ĐIỀN⟩
+Output (chạy 2026-11-26):
+
+```text
+{"answer":"Container là cách đóng gói app để chạy ở mọi nơi. Build once, run anywhere!"}
+```
+
+Log container: `INFO: 172.17.0.1:36690 - "POST /ask?question=What+is+Docker HTTP/1.1" 200 OK`
 
 ### Exercise 2.3 — Multi-stage build (`02-docker/production/Dockerfile`)
 
@@ -90,14 +96,22 @@ Output: ⟨ĐIỀN⟩
 
 ```bash
 docker build -f 02-docker/production/Dockerfile -t my-agent:advanced .
-docker images | grep my-agent
+docker images my-agent
 ```
 
-| Image | Size (đo bằng `docker images`) |
+```text
+IMAGE               ID             DISK USAGE   CONTENT SIZE   EXTRA
+my-agent:advanced   f84866cc4764        240MB         57.4MB
+my-agent:develop    4883d787884f       1.67GB          426MB
+```
+
+| Image | Size (đo bằng `docker images`, cột DISK USAGE) |
 |---|---|
-| `my-agent:develop` | ⟨ĐIỀN⟩ MB |
-| `my-agent:advanced` | ⟨ĐIỀN⟩ MB |
-| Chênh lệch | ⟨ĐIỀN⟩ % = (develop − advanced) / develop × 100 |
+| `my-agent:develop` | 1667.8 MB (1.67 GB; `docker image inspect` = 1 667 771 656 bytes) |
+| `my-agent:advanced` | 239.8 MB (240 MB; 239 811 271 bytes) |
+| Chênh lệch | **85.6 %** = (1667.8 − 239.8) / 1667.8 × 100 |
+
+Theo cột CONTENT SIZE (dung lượng nén) thì 426 MB → 57.4 MB, cũng giảm khoảng 86.5 %. Image production nhỏ hơn khoảng 7 lần.
 
 ### Exercise 2.4 — Docker Compose stack (`02-docker/production/docker-compose.yml`)
 
@@ -114,12 +128,29 @@ Client ──:80──▶  │ nginx ──round-robin──▶ agent:8000 ─�
 
 ```bash
 cd 02-docker/production && touch .env.local
-docker compose up -d
+docker compose -p k5-day14-docker up -d --build
 curl http://localhost/health
-curl -X POST "http://localhost/ask?question=Explain%20microservices"
+curl -X POST http://localhost/ask -H "Content-Type: application/json" -d '{"question": "Explain microservices"}'
+docker compose -p k5-day14-docker down
 ```
 
-Output: ⟨ĐIỀN⟩
+`main.py` bản production đọc `question` từ JSON body (`await request.json()`), không phải query string, nên lệnh mẫu phải gửi JSON.
+
+Output (chạy 2026-11-26):
+
+```text
+$ docker compose -p k5-day14-docker ps
+agent  Up 8 seconds (healthy)
+nginx  Up 8 seconds
+qdrant Up 19 seconds (healthy)
+redis  Up 19 seconds (healthy)
+
+$ curl http://localhost/health
+{"status":"ok","uptime_seconds":7.4,"version":"2.0.0","timestamp":"2026-11-26T16:18:23.420957"}
+
+$ curl -X POST http://localhost/ask -H "Content-Type: application/json" -d '{"question": "Explain microservices"}'
+{"answer":"Tôi là AI agent được deploy lên cloud. Câu hỏi của bạn đã được nhận."}
+```
 
 ---
 
